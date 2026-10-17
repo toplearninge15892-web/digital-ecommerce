@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { supabase } from '@/lib/supabase'
 import { categories, mxn, finalPrice, STORE_NAME, type Product, type Category } from '@/lib/catalog'
-import { ArrowLeft, Plus, Pencil, Trash2, X, Check, Loader2, Package, ShoppingBag, LayoutGrid } from 'lucide-react'
+import { ArrowLeft, Plus, Pencil, Trash2, X, Check, Loader2, Package, ShoppingBag, LayoutGrid, Search, BarChart3, TrendingUp, DollarSign, Clock } from 'lucide-react'
 import { ProductForm } from './product-form'
 
 type OrderRow = {
@@ -22,7 +22,7 @@ type OrderRow = {
   order_items: { id: string; product_name: string; quantity: number; unit_price: number; subtotal: number }[]
 }
 
-type Tab = 'products' | 'orders'
+type Tab = 'products' | 'orders' | 'stats'
 
 const ORDER_STATUSES = ['Entregado', 'Devuelto', 'Cancelado', 'En proceso'] as const
 
@@ -34,6 +34,14 @@ export default function AdminPage() {
   const [editing, setEditing] = useState<Product | null>(null)
   const [showForm, setShowForm] = useState(false)
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null)
+
+  // Filtros productos
+  const [productQuery, setProductQuery] = useState('')
+  const [productCat, setProductCat] = useState('Todas')
+
+  // Filtros pedidos
+  const [orderQuery, setOrderQuery] = useState('')
+  const [orderStatus, setOrderStatus] = useState('Todos')
 
   const loadProducts = useCallback(async () => {
     setLoading(true)
@@ -55,7 +63,7 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (tab === 'products') loadProducts()
-    else loadOrders()
+    else if (tab === 'orders') loadOrders()
   }, [tab, loadProducts, loadOrders])
 
   const handleSave = async (data: Omit<Product, 'created_at'>) => {
@@ -78,6 +86,45 @@ export default function AdminPage() {
     setOrders(o => o.map(order => order.id === id ? { ...order, status } : order))
   }
 
+  const filteredProducts = useMemo(() => {
+    return products.filter(p =>
+      (productCat === 'Todas' || p.category === productCat) &&
+      (p.name.toLowerCase().includes(productQuery.toLowerCase()) ||
+       p.brand.toLowerCase().includes(productQuery.toLowerCase()) ||
+       p.id.toLowerCase().includes(productQuery.toLowerCase()))
+    )
+  }, [products, productQuery, productCat])
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter(o =>
+      (orderStatus === 'Todos' || o.status === orderStatus) &&
+      (o.code.toLowerCase().includes(orderQuery.toLowerCase()) ||
+       o.customer_name.toLowerCase().includes(orderQuery.toLowerCase()) ||
+       o.customer_email.toLowerCase().includes(orderQuery.toLowerCase()))
+    )
+  }, [orders, orderQuery, orderStatus])
+
+  // Estadísticas
+  const stats = useMemo(() => {
+    const totalSales = orders.filter(o => o.status === 'Entregado').reduce((s, o) => s + o.total, 0)
+    const byStatus: Record<string, number> = {}
+    for (const o of orders) byStatus[o.status] = (byStatus[o.status] || 0) + 1
+    const productCount = products.length
+    const lowStock = products.length
+    // Top productos por cantidad vendida
+    const sold: Record<string, { name: string; qty: number; revenue: number }> = {}
+    for (const o of orders) {
+      if (o.status === 'Cancelado') continue
+      for (const i of o.order_items) {
+        if (!sold[i.product_name]) sold[i.product_name] = { name: i.product_name, qty: 0, revenue: 0 }
+        sold[i.product_name].qty += i.quantity
+        sold[i.product_name].revenue += i.subtotal
+      }
+    }
+    const topProducts = Object.values(sold).sort((a, b) => b.qty - a.qty).slice(0, 5)
+    return { totalSales, byStatus, productCount, lowStock, topProducts }
+  }, [orders, products])
+
   return <div className="admin-shell">
     <header className="admin-header">
       <div className="admin-brand"><span className="brand-mark">n</span><div><strong>{STORE_NAME} · Admin</strong><small>Panel de administración</small></div></div>
@@ -87,21 +134,31 @@ export default function AdminPage() {
     <nav className="admin-tabs">
       <button className={tab === 'products' ? 'active' : ''} onClick={() => setTab('products')}><LayoutGrid /> Productos</button>
       <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}><Package /> Pedidos {orders.length > 0 && <b>{orders.length}</b>}</button>
+      <button className={tab === 'stats' ? 'active' : ''} onClick={() => setTab('stats')}><BarChart3 /> Estadísticas</button>
     </nav>
 
     <main className="admin-main">
-      {loading ? <div className="empty-state"><Loader2 className="spin" /><h2>Cargando…</h2></div> :
+      {loading && tab !== 'stats' ? <div className="empty-state"><Loader2 className="spin" /><h2>Cargando…</h2></div> :
         tab === 'products' ? (
           <div className="admin-products">
             <div className="admin-section-head">
-              <div><h1>Productos</h1><p>{products.length} productos en el catálogo</p></div>
+              <div><h1>Productos</h1><p>{filteredProducts.length} de {products.length} productos</p></div>
               <button className="primary-button" onClick={() => { setEditing(null); setShowForm(true) }}><Plus /> Nuevo producto</button>
             </div>
+            <div className="admin-filters">
+              <div className="search-wrap admin-search"><Search aria-hidden="true" /><input value={productQuery} onChange={e => setProductQuery(e.target.value)} placeholder="Buscar por nombre, marca o id…" /></div>
+              <select value={productCat} onChange={e => setProductCat(e.target.value)}>
+                <option>Todas</option>
+                {categories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+              {(productQuery || productCat !== 'Todas') && <button className="clear-filters" onClick={() => { setProductQuery(''); setProductCat('Todas') }}>Limpiar</button>}
+            </div>
+            {filteredProducts.length === 0 ? <div className="empty-state"><Search /><h2>Sin resultados</h2><p>Ajusta la búsqueda o los filtros.</p></div> : (
             <div className="admin-table">
               <div className="admin-row admin-row-head">
                 <span>Producto</span><span>Categoría</span><span>Precio</span><span>Desc.</span><span>Popular</span><span></span>
               </div>
-              {products.map(p => (
+              {filteredProducts.map(p => (
                 <div className="admin-row" key={p.id}>
                   <span className="admin-product-cell"><img src={p.image} alt="" /><div><strong>{p.name}</strong><small>{p.brand}</small></div></span>
                   <span>{p.category}</span>
@@ -114,14 +171,22 @@ export default function AdminPage() {
                   </span>
                 </div>
               ))}
-            </div>
+            </div>)}
           </div>
-        ) : (
+        ) : tab === 'orders' ? (
           <div className="admin-orders">
-            <div className="admin-section-head"><div><h1>Pedidos</h1><p>{orders.length} pedidos registrados</p></div></div>
-            {orders.length === 0 ? <div className="empty-state"><ShoppingBag /><h2>Sin pedidos todavía</h2><p>Cuando los clientes confirmen compras, aparecerán aquí.</p></div> : (
+            <div className="admin-section-head"><div><h1>Pedidos</h1><p>{filteredOrders.length} de {orders.length} pedidos</p></div></div>
+            <div className="admin-filters">
+              <div className="search-wrap admin-search"><Search aria-hidden="true" /><input value={orderQuery} onChange={e => setOrderQuery(e.target.value)} placeholder="Buscar por código, cliente o correo…" /></div>
+              <select value={orderStatus} onChange={e => setOrderStatus(e.target.value)}>
+                <option>Todos</option>
+                {ORDER_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+              {(orderQuery || orderStatus !== 'Todos') && <button className="clear-filters" onClick={() => { setOrderQuery(''); setOrderStatus('Todos') }}>Limpiar</button>}
+            </div>
+            {filteredOrders.length === 0 ? <div className="empty-state"><ShoppingBag /><h2>Sin pedidos que coincidan</h2><p>Ajusta la búsqueda o el filtro de estado.</p></div> : (
               <div className="orders-list">
-                {orders.map(o => {
+                {filteredOrders.map(o => {
                   const isOpen = expandedOrder === o.id
                   const desc = o.order_items.map(i => `${i.quantity} × ${i.product_name}`).join(' · ')
                   return <article className={`order-card admin-order ${isOpen ? 'open' : ''}`} key={o.id}>
@@ -159,6 +224,45 @@ export default function AdminPage() {
                 })}
               </div>
             )}
+          </div>
+        ) : (
+          <div className="admin-stats">
+            <div className="admin-section-head"><div><h1>Estadísticas</h1><p>Resumen general de la tienda</p></div></div>
+            <div className="stats-grid">
+              <div className="stat-card stat-sales"><div className="stat-icon"><DollarSign /></div><div><small>Ventas totales (entregado)</small><strong>{mxn(stats.totalSales)}</strong></div></div>
+              <div className="stat-card stat-orders"><div className="stat-icon"><Package /></div><div><small>Pedidos registrados</small><strong>{orders.length}</strong></div></div>
+              <div className="stat-card stat-products"><div className="stat-icon"><LayoutGrid /></div><div><small>Productos en catálogo</small><strong>{stats.productCount}</strong></div></div>
+              <div className="stat-card stat-top"><div className="stat-icon"><TrendingUp /></div><div><small>Producto más vendido</small><strong>{stats.topProducts[0]?.name ?? 'Sin ventas aún'}</strong></div></div>
+            </div>
+            <div className="stats-columns">
+              <div className="stat-panel">
+                <h3><Clock /> Pedidos por estado</h3>
+                {ORDER_STATUSES.map(s => {
+                  const count = stats.byStatus[s] || 0
+                  const pct = orders.length > 0 ? Math.round((count / orders.length) * 100) : 0
+                  return <div className="stat-bar-row" key={s}>
+                    <span className={`status ${s.toLowerCase().replace(/\s/g, '-')}`}>{s}</span>
+                    <div className="stat-bar"><div className="stat-bar-fill" style={{ width: `${Math.max(pct, count > 0 ? 8 : 0)}%` }} /></div>
+                    <strong>{count}</strong>
+                  </div>
+                })}
+              </div>
+              <div className="stat-panel">
+                <h3><TrendingUp /> Productos más vendidos</h3>
+                {stats.topProducts.length === 0 ? <p className="stat-empty">Aún no hay ventas registradas.</p> : (
+                  <div className="stat-top-list">
+                    {stats.topProducts.map((p, i) => (
+                      <div className="stat-top-row" key={p.name}>
+                        <span className="stat-rank">{i + 1}</span>
+                        <span className="stat-top-name">{p.name}</span>
+                        <span className="stat-top-qty">{p.qty} uds.</span>
+                        <strong>{mxn(p.revenue)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
     </main>
