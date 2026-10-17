@@ -143,6 +143,6 @@ export default function Page() {
     {view==='checkout' && <Checkout cart={cart} setView={setView} onConfirm={confirm}/>}
     {view==='orders' && <Orders setView={setView} orders={orders} loading={ordersLoading}/>}
     {view==='confirmation' && orderDone && <main className="confirmation"><div className="success-mark"><Check/></div><span className="section-kicker">PEDIDO CONFIRMADO</span><h1>Gracias por tu compra.</h1><p>Tu pedido ha sido registrado correctamente. En esta demo, el pago es simulado.</p><div className="confirmation-id">Número de pedido <strong>{orderDone.code}</strong></div><button className="primary-button" onClick={()=>setView('orders')}>Ver mis pedidos <ArrowRight data-icon="inline-end"/></button><button className="text-button" onClick={()=>setView('home')}>Volver al inicio</button></main>}
-    <footer><div className="brand"><span className="brand-mark">n</span>{STORE_NAME}</div><p>Una tienda demo para tu sistema comercial.</p><span>© 2026 · Hecho para comprar mejor.</span></footer>
+    <footer><div className="brand"><span className="brand-mark">n</span>{STORE_NAME}</div><p>Una tienda demo para tu sistema comercial.</p><span>© 2026 · Hecho para comprar mejor.</span><a href="/admin" className="admin-link">Panel de administración</a></footer>
   </>
 }
